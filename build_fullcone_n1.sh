@@ -411,6 +411,8 @@ echo -e "\n=================================================="
 echo "🎯 最终模块签名验证："
 if [ -f "src/nft_fullcone.ko" ]; then
     strings src/nft_fullcone.ko | grep vermagic || echo "⚠️ 警告：提取 vermagic 失败，可能存在未知异常！"
+    # 【修复重点】：用 sudo 确保输出文件夹绝对存在
+    sudo mkdir -p "$OUT_DIR"
     sudo cp src/nft_fullcone.ko "$OUT_DIR/"
     echo "✅ 成功！定制版 nft_fullcone.ko 已自动提取至: $OUT_DIR/"
 else
