@@ -400,7 +400,12 @@ echo "=================================================="
 
 echo -e "\n 发起最终极简版纯净编译 (全程无静默，实时监控)..."
 # nft_fullcone 的 Makefile 在根目录，但 obj 文件生成在 src 目录
-sudo $MAKE_CMD M=$(pwd)/src -C $LINUX_DIR modules
+echo "🔥 [去除编译强迫症] 移除 Makefile 中的 -Werror，防止被新内核的警告（如 counted_by）打断编译..."
+sudo sed -i 's/-Werror//g' Makefile 2>/dev/null || true
+sudo sed -i 's/-Werror//g' src/Makefile 2>/dev/null || true
+
+echo -e "\n🚀 [启动编译] 发起最终极简版纯净编译 (全程无静默，实时监控)..."
+sudo $MAKE_CMD M=$(pwd)/src -C $LINUX_DIR KCFLAGS="-Wno-error" modules
 
 echo -e "\n=================================================="
 echo "🎯 最终模块签名验证："
