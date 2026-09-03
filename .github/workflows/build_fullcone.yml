@@ -1,0 +1,95 @@
+name: Build Fullcone Kernel Module
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_version:
+        description: '请选择编译内核版本 (输入 all 编译全部，或输入具体版本号如 6.18.48)'
+        required: true
+        type: string
+        default: 'all'
+      device_type:
+        description: '设备类型 (默认 amlogic)'
+        required: false
+        type: choice
+        options:
+          - amlogic
+          - rk35xx
+        default: 'amlogic'
+
+permissions:
+  contents: write
+
+jobs:
+  prepare_matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix_config: ${{ steps.generate.outputs.matrix_config }}
+      has_jobs: ${{ steps.generate.outputs.has_jobs }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Generate Build List and OS Matrix
+        id: generate
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # ... [保留你原本 OAF 脚本中获取 AVAILABLE_FLIPPY 和 BASE_VERSIONS 的逻辑] ...
+          # JSON 矩阵生成时，oaf_version 字段可以写死为 "imm-07d93b6" 作为标识
+          # JSON_ARRAY=$(echo "$JSON_ARRAY" | jq -c ". += [{\"base_version\": \"$v\", \"full_ver\": \"$FULL_VER\", \"os\": \"$RUNNER\", \"compiler_type\": \"$COMPILER_TYPE\", \"compiler_ver\": \"$COMPILER_VER\", \"module_ver\": \"imm-07d93b6\", \"device_type\": \"$DEVICE_TYPE\"}]")
+          # ... [保留剩余生成 outputs 的逻辑] ...
+
+  build_and_release:
+    needs: prepare_matrix
+    if: needs.prepare_matrix.outputs.has_jobs == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.prepare_matrix.outputs.matrix_config) }}
+        
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # ... [保留原版安装 Toolchain 和 Setup Kernel Assets 的逻辑] ...
+
+      - name: Run Build Script
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMPILER_TYPE: ${{ matrix.compiler_type }} 
+          DEVICE_TYPE: ${{ matrix.device_type }}
+        run: |
+          chmod +x build_fullcone_n1.sh
+          ./build_fullcone_n1.sh ${{ matrix.full_ver }}
+
+      - name: Pack and Push to GitHub Releases
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          KO_PATH=$(find /workspace/build_oaf/output/ -name "nft_fullcone.ko" | head -n 1)
+          if [ -z "$KO_PATH" ]; then echo "❌ 编译产物丢失，放弃发布！"; exit 1; fi
+
+          VERSION="${{ matrix.full_ver }}"
+          TAR_NAME="nft_fullcone-${VERSION}.tar.gz"
+          
+          cd $(dirname "$KO_PATH")
+          tar -czvf "$GITHUB_WORKSPACE/$TAR_NAME" nft_fullcone.ko
+          cd $GITHUB_WORKSPACE
+
+          TAG_NAME="Fullcone_Kmods_${{ matrix.module_ver }}"
+          RELEASE_TITLE="NFT Fullcone NAT 模块 (适配 ImmortalWrt 前端)"
+          
+          cat << EOF > release_notes.md
+          # 🚀 魔改版 nft_fullcone.ko
+          > 此模块的 ABI 枚举顺序已强行修改为 \`FLAGS -> MIN -> MAX\`。
+          > 专用于配合 **ImmortalWrt** 的 \`fw4\` 前端，解决原生模块回退 NAT3 的 Bug。
+          EOF
+
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            gh release upload "$TAG_NAME" "$TAR_NAME" --clobber
+          else
+            gh release create "$TAG_NAME" "$TAR_NAME" --title "$RELEASE_TITLE" --notes-file release_notes.md
+          fi
