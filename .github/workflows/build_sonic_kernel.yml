@@ -202,6 +202,6 @@ jobs:
             > 这里集合了所有编译完成的 SONiC 全锥型底层内核（wjtyyds 体系）。
             > 
             > **使用指引**: 下载对应的 \`版本号.tar\`，解压后将其中的 4 个核心组件放入打包脚本的相应目录中即可。
-            EOF
+          EOF
             gh release create "$TAG_NAME" "$GITHUB_WORKSPACE/$TAR_FILENAME" --title "$RELEASE_TITLE" --notes-file release_notes.md
           fi
