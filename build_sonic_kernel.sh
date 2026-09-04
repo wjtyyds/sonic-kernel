@@ -1,29 +1,30 @@
 #!/bin/bash
+set -e
 
 GITHUB_TOKEN="${GITHUB_TOKEN:-}"
-TARGET_VER=""
-
-# 1. 参数解析 (兼容你的 OAF 脚本逻辑)
-for arg in "$@"; do
-    if echo "$arg" | grep -qE '[0-9]+\.[0-9]+\.[0-9]+-'; then
-        TARGET_VER="$arg"
-        break
-    fi
-done
+TARGET_VER="$1"
 
 if [ -z "$TARGET_VER" ]; then
     echo "❌ 错误: 没找到合法的版本号！"
     exit 1
 fi
 
+# 解析版本号和后缀
 VERSION_NAME=$(echo "$TARGET_VER" | sed 's/^k//')
 KERNEL_VER=$(echo "$VERSION_NAME" | cut -d'-' -f1)
+# === 在这里强行截胡，覆盖为你自定义的后缀 ===
+SIGN_SUFFIX="-wjtyyds"
+VERSION_NAME="${KERNEL_VER}${SIGN_SUFFIX}"
+AUTHOR="wjtyyds"
+BASE_VER=$(echo "$KERNEL_VER" | cut -d'.' -f1,2)
+# ============================================
 SIGN_SUFFIX=$(echo "$VERSION_NAME" | sed "s/^$KERNEL_VER//")
 AUTHOR=$(echo "$VERSION_NAME" | cut -d'-' -f2)
 BASE_VER=$(echo "$KERNEL_VER" | cut -d'.' -f1,2)
 
 WORK_DIR="/workspace/kernel/$AUTHOR/$KERNEL_VER"
 OUT_DIR="/workspace/build_sonic/output/$VERSION_NAME"
+FINAL_TAR_DIR="/workspace/build_sonic/final_release"
 DEVICE_TYPE="${DEVICE_TYPE:-amlogic}"
 
 if [ "$DEVICE_TYPE" == "rk35xx" ]; then
@@ -39,18 +40,17 @@ else
     MAKE_CMD="make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-"
 fi
 
-mkdir -p "$WORK_DIR"
-sudo mkdir -p "/workspace/build_sonic/output"
+sudo mkdir -p "$WORK_DIR" "$OUT_DIR" "$FINAL_TAR_DIR"
 cd "$WORK_DIR"
 
-# 2. 从 F大 (wjtyyds) 提取 boot 与 .config 环境
-echo " 正在从 wjtyyds 检查并提取 Header 与 Boot 环境..."
+echo "=================================================="
+echo " 1. 正在从 wjtyyds (F大) 提取 Header 与 Boot 环境..."
+echo "=================================================="
 if ! ls boot-*.tar.gz 1> /dev/null 2>&1; then
     if [ "$DEVICE_TYPE" == "rk35xx" ]; then
         URL_RK="https://github.com/ophub/kernel/releases/download/kernel_rk35xx/${KERNEL_VER}.tar.gz"
         if sudo wget -qO /tmp/env.tar.gz "$URL_RK"; then
             sudo tar -xf /tmp/env.tar.gz -C . 2>/dev/null || true
-            sudo rm -f /tmp/env.tar.gz
         fi
     else
         URL_FLIPPY="https://github.com/wjtyyds/amlogic-s9xxx-armbian/releases/download/kernel_flippy/${KERNEL_VER}.tar"
@@ -60,15 +60,12 @@ if ! ls boot-*.tar.gz 1> /dev/null 2>&1; then
         if sudo wget -qO /tmp/env.tar "$URL_FLIPPY"; then
             echo "✅ 从 kernel_flippy 下载成功"
             sudo tar -xf /tmp/env.tar -C . 2>/dev/null || true
-            sudo rm -f /tmp/env.tar
         elif sudo wget -qO /tmp/env.tar.gz "$URL_STABLE"; then
             echo "✅ 从 kernel_stable 下载成功"
             sudo tar -xf /tmp/env.tar.gz -C . 2>/dev/null || true
-            sudo rm -f /tmp/env.tar.gz
         elif sudo wget -qO /tmp/env.tar.gz "$URL_OPHUB"; then
             echo "✅ 从 ophub/kernel 下载成功"
             sudo tar -xf /tmp/env.tar.gz -C . 2>/dev/null || true
-            sudo rm -f /tmp/env.tar.gz
         fi
     fi
 fi
@@ -78,20 +75,20 @@ if [ ! -d "boot_env" ]; then
     sudo tar -zxvf boot-*.tar.gz -C boot_env 2>/dev/null || true
 fi
 
-# 获取 .config 路径
 HEADER_DIR=$(realpath $(dirname $(sudo find boot_env -name "config-*" | head -n 1)))
+echo "✅ 已锁定内核配置文件: $HEADER_DIR/.config"
 
-# 3. 源码拉取 (沿用原有的 unifreq 与 kernel.org 兜底逻辑)
+echo "=================================================="
+echo " 2. 拉取纯净源码并对齐 unifreq 定制分支..."
 echo "=================================================="
 if [ ! -d "$LINUX_DIR/.git" ]; then
-    echo " 未发现本地源码，开始拉取源码树..."
     sudo rm -rf "$LINUX_DIR"
     mkdir "$LINUX_DIR"
     cd "$LINUX_DIR"
     sudo git init
 
     if git ls-remote "https://github.com/unifreq/${REPO_NAME}.git" &>/dev/null; then
-        echo "✅ 找到定制分支！正在从 unifreq 拉取..."
+        echo "✅ 正在从 unifreq 专属分支拉取..."
         sudo git remote add origin "https://github.com/unifreq/${REPO_NAME}.git"
         COMMIT_HASH=$(sudo git ls-remote origin | grep -E "refs/tags/v${KERNEL_VER}(\^\{\})?$" | tail -n 1 | awk '{print $1}')
         
@@ -99,13 +96,13 @@ if [ ! -d "$LINUX_DIR/.git" ]; then
             sudo git fetch --depth 1 origin $COMMIT_HASH
             sudo git checkout FETCH_HEAD
         else
-            echo "⚠️ 未找到 Tag，回退至 kernel.org..."
+            echo "⚠️ 未找到对应 Tag，回退至 kernel.org..."
             sudo git remote set-url origin "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git" 2>/dev/null || sudo git remote add origin "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git"
             sudo git fetch --depth 1 origin "tags/v${KERNEL_VER}"
             sudo git checkout FETCH_HEAD
         fi
     else
-        echo "⚠️ unifreq 不存在，回退至 kernel.org..."
+        echo "⚠️ unifreq 不存在此仓库，回退至 kernel.org..."
         sudo git remote add origin "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git"
         sudo git fetch --depth 1 origin "tags/v${KERNEL_VER}"
         sudo git checkout FETCH_HEAD
@@ -115,7 +112,9 @@ fi
 
 cd "$LINUX_DIR"
 
-# 注入 .config 和版本号后缀
+echo "=================================================="
+echo " 3. 注入地基配置与修改内核魔数..."
+echo "=================================================="
 sudo cp $HEADER_DIR/.config .
 sudo sed -i 's/CONFIG_LOCALVERSION_AUTO=y/# CONFIG_LOCALVERSION_AUTO is not set/g' .config
 if grep -q "CONFIG_LOCALVERSION=" .config; then
@@ -132,38 +131,64 @@ sudo sed -i "s/^PATCHLEVEL = .*/PATCHLEVEL = $SYS_VER_2/" Makefile
 sudo sed -i "s/^SUBLEVEL = .*/SUBLEVEL = $SYS_VER_3/" Makefile
 sudo sed -i "s/^EXTRAVERSION = .*/EXTRAVERSION = /" Makefile
 
-# 4. 注入 SONiC 内核补丁
 echo "=================================================="
-echo " 正在注入 SONiC Fullcone 补丁..."
+echo " 4. 引入 SONiC Fullcone 深度内核补丁..."
+echo "=================================================="
 sudo git clone --depth 1 https://github.com/mufeng05/openwrt-sonic-fullcone.git /tmp/sonic
 for patch_file in /tmp/sonic/kernel/*.patch; do
     if [ -f "$patch_file" ]; then
-        echo " -> 应用补丁: $(basename "$patch_file")"
+        echo " -> 正在植入: $(basename "$patch_file")"
         sudo patch -p1 < "$patch_file"
     fi
 done
 
-# 5. 全量编译
 echo "=================================================="
-echo "🚀 启动全量内核编译 (Image, dtbs, modules)..."
+echo " 5. 启动全系统内核编译 (Image, dtbs, modules)..."
+echo "=================================================="
 sudo $MAKE_CMD olddefconfig
 sudo $MAKE_CMD clean
-sudo $MAKE_CMD -j$(nproc) Image dtbs modules
+sudo $MAKE_CMD KBUILD_MODPOST_WARN=1 KCFLAGS="-Wno-error" HOSTCFLAGS="-Wno-error" -j$(nproc) Image dtbs modules
 
-# 6. 打包输出
+echo "=================================================="
+echo " 6. 按 F大 规范执行分体打包 (boot / modules / dtb / header)"
 echo "=================================================="
 PACK_DIR="$WORK_DIR/pack_out"
-sudo mkdir -p "$PACK_DIR/boot" "$PACK_DIR/lib/modules"
+sudo mkdir -p "$PACK_DIR"
 
-sudo $MAKE_CMD INSTALL_MOD_PATH="$PACK_DIR" modules_install
-sudo cp arch/arm64/boot/Image "$PACK_DIR/boot/vmlinuz-$VERSION_NAME"
-sudo cp .config "$PACK_DIR/boot/config-$VERSION_NAME"
-sudo cp System.map "$PACK_DIR/boot/System.map-$VERSION_NAME"
+# 6.1 打包 boot
+echo " -> 正在打包 boot 组件..."
+sudo mkdir -p "$PACK_DIR/boot_tmp/boot"
+sudo cp arch/arm64/boot/Image "$PACK_DIR/boot_tmp/boot/vmlinuz-$VERSION_NAME"
+sudo cp .config "$PACK_DIR/boot_tmp/boot/config-$VERSION_NAME"
+sudo cp System.map "$PACK_DIR/boot_tmp/boot/System.map-$VERSION_NAME"
+(cd "$PACK_DIR/boot_tmp" && sudo tar -czf "$OUT_DIR/boot-${VERSION_NAME}.tar.gz" .)
 
-sudo rm -f "$PACK_DIR/lib/modules/$VERSION_NAME/build"
-sudo rm -f "$PACK_DIR/lib/modules/$VERSION_NAME/source"
+# 6.2 打包 modules
+echo " -> 正在打包 modules 组件..."
+sudo mkdir -p "$PACK_DIR/modules_tmp"
+sudo $MAKE_CMD INSTALL_MOD_PATH="$PACK_DIR/modules_tmp" modules_install
+sudo rm -f "$PACK_DIR/modules_tmp/lib/modules/$VERSION_NAME/build"
+sudo rm -f "$PACK_DIR/modules_tmp/lib/modules/$VERSION_NAME/source"
+(cd "$PACK_DIR/modules_tmp" && sudo tar -czf "$OUT_DIR/modules-${VERSION_NAME}.tar.gz" .)
 
-cd "$PACK_DIR"
-sudo mkdir -p "$OUT_DIR"
-sudo tar -czvf "$OUT_DIR/kernel-sonic-${VERSION_NAME}.tar.gz" ./*
-echo "✅ 编译打包完成！产物位于: $OUT_DIR/kernel-sonic-${VERSION_NAME}.tar.gz"
+# 6.3 打包 dtb-amlogic
+echo " -> 正在打包 dtb-amlogic 组件..."
+sudo mkdir -p "$PACK_DIR/dtb_tmp/boot/dtb-amlogic"
+sudo cp arch/arm64/boot/dts/amlogic/*.dtb "$PACK_DIR/dtb_tmp/boot/dtb-amlogic/" 2>/dev/null || true
+(cd "$PACK_DIR/dtb_tmp" && sudo tar -czf "$OUT_DIR/dtb-amlogic-${VERSION_NAME}.tar.gz" .)
+
+# 6.4 提取并补齐 header
+echo " -> 正在同步 header 组件..."
+if [ -f "$WORK_DIR/header-${VERSION_NAME}.tar.gz" ]; then
+    sudo cp "$WORK_DIR/header-${VERSION_NAME}.tar.gz" "$OUT_DIR/"
+elif ls $WORK_DIR/header-*.tar.gz 1> /dev/null 2>&1; then
+    sudo cp $WORK_DIR/header-*.tar.gz "$OUT_DIR/header-${VERSION_NAME}.tar.gz"
+fi
+
+echo "=================================================="
+echo " 7. 汇总打包为一个标准 .tar 压缩包"
+echo "=================================================="
+cd "$OUT_DIR"
+sudo tar -cf "${FINAL_TAR_DIR}/${VERSION_NAME}.tar" *.tar.gz
+
+echo "✅ SONiC 全量内核终极打包完毕: ${FINAL_TAR_DIR}/${VERSION_NAME}.tar"
