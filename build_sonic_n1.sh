@@ -41,6 +41,7 @@ else
 fi
 
 sudo mkdir -p "$WORK_DIR" "$OUT_DIR" "$FINAL_TAR_DIR"
+sudo chown -R $USER:$USER /workspace   # 添加这一行，把权限还给当前用户
 cd "$WORK_DIR"
 
 echo "=================================================="
