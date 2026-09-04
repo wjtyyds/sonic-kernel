@@ -181,7 +181,7 @@ sudo cp System.map "$PACK_DIR/boot_tmp/boot/System.map-$VERSION_NAME"
 # 6.2 打包 modules
 echo " -> 正在打包 modules 组件..."
 sudo mkdir -p "$PACK_DIR/modules_tmp"
-sudo $MAKE_CMD INSTALL_MOD_PATH="$PACK_DIR/modules_tmp" modules_install
+sudo $MAKE_CMD INSTALL_MOD_STRIP=1 INSTALL_MOD_PATH="$PACK_DIR/modules_tmp" modules_install
 sudo rm -f "$PACK_DIR/modules_tmp/lib/modules/$VERSION_NAME/build"
 sudo rm -f "$PACK_DIR/modules_tmp/lib/modules/$VERSION_NAME/source"
 (cd "$PACK_DIR/modules_tmp" && sudo tar -czf "$OUT_DIR/modules-${VERSION_NAME}.tar.gz" .)
