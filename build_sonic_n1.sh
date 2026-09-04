@@ -123,7 +123,8 @@ cd "$LINUX_DIR"
 echo "=================================================="
 echo " 3. 注入地基配置与修改内核魔数..."
 echo "=================================================="
-sudo cp $HEADER_DIR/.config .
+# 将上一步备好的基础配置文件注入为当前内核的 .config
+sudo cp "$WORK_DIR/.config_base" ./.config
 sudo sed -i 's/CONFIG_LOCALVERSION_AUTO=y/# CONFIG_LOCALVERSION_AUTO is not set/g' .config
 if grep -q "CONFIG_LOCALVERSION=" .config; then
     sudo sed -i 's/CONFIG_LOCALVERSION=.*/CONFIG_LOCALVERSION="'"$SIGN_SUFFIX"'"/' .config
