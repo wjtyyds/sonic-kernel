@@ -76,8 +76,15 @@ if [ ! -d "boot_env" ]; then
     sudo tar -zxvf boot-*.tar.gz -C boot_env 2>/dev/null || true
 fi
 
-HEADER_DIR=$(realpath $(dirname $(sudo find boot_env -name "config-*" | head -n 1)))
-echo "✅ 已锁定内核配置文件: $HEADER_DIR/.config"
+# 核心修复：找到 config-xxx 文件，并重命名提取到工作目录的安全位置
+CONFIG_FILE=$(sudo find boot_env -name "config-*" | head -n 1)
+if [ -f "$CONFIG_FILE" ]; then
+    sudo cp "$CONFIG_FILE" "$WORK_DIR/.config_base"
+    echo "✅ 已成功提取内核配置文件: $CONFIG_FILE"
+else
+    echo "❌ 提取失败：在 boot_env 中找不到 config 文件！"
+    exit 1
+fi
 
 echo "=================================================="
 echo " 2. 拉取纯净源码并对齐 unifreq 定制分支..."
