@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       target_version:
-        description: '请选择编译版本 (输入 all 编译全部，或直接输入版本号如 6.18.49)'
+        description: '请选择编译版本 (输入 all 编译全部，或直接输入版本号如 6.18.49-flippy-95+o)'
         required: true
         type: string
         default: '6.18.49'
@@ -164,15 +164,9 @@ jobs:
             sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
             sudo ln -sf /usr/bin/clang-${{ matrix.compiler_ver }} /usr/bin/clang
             sudo ln -sf /usr/bin/ld.lld-${{ matrix.compiler_ver }} /usr/bin/ld.lld
-            sudo ln -sf /usr/bin/llvm-objdump-${{ matrix.compiler_ver }} /usr/bin/llvm-objdump
-            sudo ln -sf /usr/bin/llvm-nm-${{ matrix.compiler_ver }} /usr/bin/llvm-nm
-            sudo ln -sf /usr/bin/llvm-objcopy-${{ matrix.compiler_ver }} /usr/bin/llvm-objcopy
-            sudo ln -sf /usr/bin/llvm-strip-${{ matrix.compiler_ver }} /usr/bin/llvm-strip
-            sudo ln -sf /usr/bin/llvm-ar-${{ matrix.compiler_ver }} /usr/bin/llvm-ar
-            sudo ln -sf /usr/bin/llvm-readelf-${{ matrix.compiler_ver }} /usr/bin/llvm-readelf
           fi
 
-      - name: Run Build Script
+      - name: Run SONiC Kernel Build Script
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           COMPILER_TYPE: ${{ matrix.compiler_type }} 
@@ -185,26 +179,25 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAR_PATH=$(find /workspace/build_sonic/output/ -name "kernel-sonic-*.tar.gz" | head -n 1)
-          if [ -z "$TAR_PATH" ]; then echo "❌ 编译产物丢失，放弃发布！"; exit 1; fi
-
           VERSION="${{ matrix.full_ver }}"
-          TAR_NAME="kernel-sonic-${VERSION}.tar.gz"
-          cp "$TAR_PATH" "$GITHUB_WORKSPACE/$TAR_NAME"
+          FINAL_TAR=$(find /workspace/build_sonic/final_release/ -name "${VERSION}.tar" | head -n 1)
+          
+          if [ -z "$FINAL_TAR" ]; then echo "❌ 编译产物丢失，放弃发布！"; exit 1; fi
+
+          cp "$FINAL_TAR" "$GITHUB_WORKSPACE/"
 
           TAG_NAME="SONiC_Kernel_${VERSION}"
           RELEASE_TITLE="SONiC Fullcone 全量内核 ${VERSION}"
           
           cat << EOF > release_notes.md
-          # 🚀 SONiC Fullcone 深度魔改内核
-          > 本内核直接在 \`nf_nat_core\` 中植入了 SONiC 的无锁全协议全锥型 NAT 引擎。
-          
+          # 🚀 SONiC Fullcone 深度整合内核
           - **底层基座**: F大 (wjtyyds) \`${VERSION}\`
-          - **使用方法**: 使用 OpenWrt 打包脚本打包时，将本包解压覆盖至 \`/opt/kernel\` 即可。
+          - **核心特性**: 内嵌 SONiC 无锁结构 (RCU)、支持全协议 O(1) 查询。
+          - **使用指引**: 将压缩包放入 \`openwrt_packit/opt/kernel\` 目录以打包固件。
           EOF
 
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then
-            gh release upload "$TAG_NAME" "$TAR_NAME" --clobber
+            gh release upload "$TAG_NAME" "$GITHUB_WORKSPACE/${VERSION}.tar" --clobber
           else
-            gh release create "$TAG_NAME" "$TAR_NAME" --title "$RELEASE_TITLE" --notes-file release_notes.md
+            gh release create "$TAG_NAME" "$GITHUB_WORKSPACE/${VERSION}.tar" --title "$RELEASE_TITLE" --notes-file release_notes.md
           fi
