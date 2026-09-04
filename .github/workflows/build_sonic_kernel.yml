@@ -1,0 +1,48 @@
+name: Build SONiC Fullcone Kernel
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_version:
+        description: '目标内核版本 (例如: 6.18.46-flippy-90+o)'
+        required: true
+        type: string
+        default: '6.18.46-flippy-90+o'
+
+permissions:
+  contents: write
+
+jobs:
+  build_kernel:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Toolchain and Dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential bison flex libssl-dev bc \
+            python3 git curl wget libelf-dev software-properties-common \
+            gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu kmod cpio
+
+      - name: Run SONiC Kernel Build Script
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          chmod +x build_sonic_kernel.sh
+          ./build_sonic_kernel.sh "${{ inputs.target_version }}"
+
+      - name: Pack and Push to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: SONiC_Kernel_${{ inputs.target_version }}
+          name: SONiC Fullcone Kernel ${{ inputs.target_version }}
+          body: |
+            # 🚀 SONiC Fullcone 深度魔改内核
+            - **底层版本**: ${{ inputs.target_version }}
+            - **特性**: 原生嵌入 `openwrt-sonic-fullcone` 内核补丁，支持全协议、RCU无锁架构。
+            - **使用方法**: 直接将压缩包放入 `openwrt_packit` 的 `opt/kernel` 目录下打包即可。
+          files: /workspace/output/*.tar.gz
