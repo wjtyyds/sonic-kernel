@@ -179,28 +179,29 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 使用通配符动态抓取真实生成的 tar 包，无视之前的输入变量
           FINAL_TAR=$(find /workspace/build_sonic/final_release/ -name "*.tar" | head -n 1)
-          
           if [ -z "$FINAL_TAR" ]; then echo "❌ 编译产物丢失，放弃发布！"; exit 1; fi
 
+          # 直接获取文件名，例如 6.18.49.tar
           TAR_FILENAME=$(basename "$FINAL_TAR")
-          REAL_VERSION="${TAR_FILENAME%.tar}"
           
           cp "$FINAL_TAR" "$GITHUB_WORKSPACE/"
 
-          TAG_NAME="SONiC_Kernel_${REAL_VERSION}"
-          RELEASE_TITLE="SONiC Fullcone 全量内核 ${REAL_VERSION}"
+          # 【核心修改】：把标签和标题写死，所有的内核以后都传到这个分类下
+          TAG_NAME="SONiC_Kernels"
+          RELEASE_TITLE="🚀 SONiC Fullcone 全量内核集合"
           
-          cat << EOF > release_notes.md
-          # 🚀 SONiC Fullcone 深度整合内核
-          - **内核版本**: \`${REAL_VERSION}\`
-          - **核心特性**: 内嵌 SONiC 无锁结构 (RCU)、支持全协议 O(1) 查询。
-          - **使用指引**: 将压缩包放入 \`openwrt_packit/opt/kernel\` 目录以打包固件。
-          EOF
-
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            echo "✅ 发现已有集合 Release，直接追加上传资产..."
+            # --clobber 表示如果这个版本号的包已存在就覆盖，不存在就新增
             gh release upload "$TAG_NAME" "$GITHUB_WORKSPACE/$TAR_FILENAME" --clobber
           else
+            echo "🆕 首次创建集合 Release..."
+            cat << EOF > release_notes.md
+            # 🚀 SONiC Fullcone 深度整合内核库
+            > 这里集合了所有编译完成的 SONiC 全锥型底层内核（wjtyyds 体系）。
+            > 
+            > **使用指引**: 下载对应的 \`版本号.tar\`，解压后将其中的 4 个核心组件放入打包脚本的相应目录中即可。
+            EOF
             gh release create "$TAG_NAME" "$GITHUB_WORKSPACE/$TAR_FILENAME" --title "$RELEASE_TITLE" --notes-file release_notes.md
           fi

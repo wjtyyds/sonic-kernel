@@ -170,29 +170,32 @@ echo "=================================================="
 PACK_DIR="$WORK_DIR/pack_out"
 sudo mkdir -p "$PACK_DIR"
 
-# 6.1 打包 boot
+# 6.1 打包 boot (扁平化，带上 initrd，强制 root 权限)
 echo " -> 正在打包 boot 组件..."
-sudo mkdir -p "$PACK_DIR/boot_tmp/boot"
-sudo cp arch/arm64/boot/Image "$PACK_DIR/boot_tmp/boot/vmlinuz-$VERSION_NAME"
-sudo cp .config "$PACK_DIR/boot_tmp/boot/config-$VERSION_NAME"
-sudo cp System.map "$PACK_DIR/boot_tmp/boot/System.map-$VERSION_NAME"
-(cd "$PACK_DIR/boot_tmp" && sudo tar -czf "$OUT_DIR/boot-${VERSION_NAME}.tar.gz" .)
+sudo mkdir -p "$PACK_DIR/boot_tmp"
+sudo cp arch/arm64/boot/Image "$PACK_DIR/boot_tmp/vmlinuz-$VERSION_NAME"
+sudo cp .config "$PACK_DIR/boot_tmp/config-$VERSION_NAME"
+sudo cp System.map "$PACK_DIR/boot_tmp/System.map-$VERSION_NAME"
+# 从原版环境中继承初始内存盘镜像
+sudo find "$WORK_DIR/boot_env" -name "initrd.img-*" -exec cp {} "$PACK_DIR/boot_tmp/initrd.img-$VERSION_NAME" \;
+sudo find "$WORK_DIR/boot_env" -name "uInitrd-*" -exec cp {} "$PACK_DIR/boot_tmp/uInitrd-$VERSION_NAME" \;
+(cd "$PACK_DIR/boot_tmp" && sudo tar --owner=0 --group=0 -czf "$OUT_DIR/boot-${VERSION_NAME}.tar.gz" *)
 
-# 6.2 打包 modules
+# 6.2 打包 modules (剥离调试信息，扁平化，强制 root 权限)
 echo " -> 正在打包 modules 组件..."
 sudo mkdir -p "$PACK_DIR/modules_tmp"
 sudo $MAKE_CMD INSTALL_MOD_STRIP=1 INSTALL_MOD_PATH="$PACK_DIR/modules_tmp" modules_install
 sudo rm -f "$PACK_DIR/modules_tmp/lib/modules/$VERSION_NAME/build"
 sudo rm -f "$PACK_DIR/modules_tmp/lib/modules/$VERSION_NAME/source"
-(cd "$PACK_DIR/modules_tmp" && sudo tar -czf "$OUT_DIR/modules-${VERSION_NAME}.tar.gz" .)
+(cd "$PACK_DIR/modules_tmp/lib/modules" && sudo tar --owner=0 --group=0 -czf "$OUT_DIR/modules-${VERSION_NAME}.tar.gz" "$VERSION_NAME")
 
-# 6.3 打包 dtb-amlogic
+# 6.3 打包 dtb-amlogic (扁平化，强制 root 权限)
 echo " -> 正在打包 dtb-amlogic 组件..."
-sudo mkdir -p "$PACK_DIR/dtb_tmp/boot/dtb-amlogic"
-sudo cp arch/arm64/boot/dts/amlogic/*.dtb "$PACK_DIR/dtb_tmp/boot/dtb-amlogic/" 2>/dev/null || true
-(cd "$PACK_DIR/dtb_tmp" && sudo tar -czf "$OUT_DIR/dtb-amlogic-${VERSION_NAME}.tar.gz" .)
+sudo mkdir -p "$PACK_DIR/dtb_tmp"
+sudo cp arch/arm64/boot/dts/amlogic/*.dtb "$PACK_DIR/dtb_tmp/" 2>/dev/null || true
+(cd "$PACK_DIR/dtb_tmp" && sudo tar --owner=0 --group=0 -czf "$OUT_DIR/dtb-amlogic-${VERSION_NAME}.tar.gz" *)
 
-# 6.4 提取并补齐 header
+# 6.4 提取并补齐 header (原样继承，无需特殊处理)
 echo " -> 正在同步 header 组件..."
 if [ -f "$WORK_DIR/header-${VERSION_NAME}.tar.gz" ]; then
     sudo cp "$WORK_DIR/header-${VERSION_NAME}.tar.gz" "$OUT_DIR/"
@@ -203,7 +206,11 @@ fi
 echo "=================================================="
 echo " 7. 汇总打包为一个标准 .tar 压缩包"
 echo "=================================================="
-cd "$OUT_DIR"
-sudo tar -cf "${FINAL_TAR_DIR}/${VERSION_NAME}.tar" *.tar.gz
+# 截取掉后缀，只保留前面纯数字部分 (例如 6.18.49)
+BASE_VER=$(echo "$VERSION_NAME" | cut -d'-' -f1)
 
-echo "✅ SONiC 全量内核终极打包完毕: ${FINAL_TAR_DIR}/${VERSION_NAME}.tar"
+cd "$OUT_DIR"
+# 外层包名叫 6.18.49.tar，把当前目录下四个带后缀的 .tar.gz 全装进去
+sudo tar -cf "$FINAL_TAR_DIR/${BASE_VER}.tar" *.tar.gz
+
+echo "✅ SONiC 全量内核终极打包完毕: $FINAL_TAR_DIR/${BASE_VER}.tar"
