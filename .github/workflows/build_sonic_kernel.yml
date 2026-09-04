@@ -179,25 +179,28 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION="${{ matrix.full_ver }}"
-          FINAL_TAR=$(find /workspace/build_sonic/final_release/ -name "${VERSION}.tar" | head -n 1)
+          # 使用通配符动态抓取真实生成的 tar 包，无视之前的输入变量
+          FINAL_TAR=$(find /workspace/build_sonic/final_release/ -name "*.tar" | head -n 1)
           
           if [ -z "$FINAL_TAR" ]; then echo "❌ 编译产物丢失，放弃发布！"; exit 1; fi
 
+          TAR_FILENAME=$(basename "$FINAL_TAR")
+          REAL_VERSION="${TAR_FILENAME%.tar}"
+          
           cp "$FINAL_TAR" "$GITHUB_WORKSPACE/"
 
-          TAG_NAME="SONiC_Kernel_${VERSION}"
-          RELEASE_TITLE="SONiC Fullcone 全量内核 ${VERSION}"
+          TAG_NAME="SONiC_Kernel_${REAL_VERSION}"
+          RELEASE_TITLE="SONiC Fullcone 全量内核 ${REAL_VERSION}"
           
           cat << EOF > release_notes.md
           # 🚀 SONiC Fullcone 深度整合内核
-          - **底层基座**: F大 (wjtyyds) \`${VERSION}\`
+          - **内核版本**: \`${REAL_VERSION}\`
           - **核心特性**: 内嵌 SONiC 无锁结构 (RCU)、支持全协议 O(1) 查询。
           - **使用指引**: 将压缩包放入 \`openwrt_packit/opt/kernel\` 目录以打包固件。
           EOF
 
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then
-            gh release upload "$TAG_NAME" "$GITHUB_WORKSPACE/${VERSION}.tar" --clobber
+            gh release upload "$TAG_NAME" "$GITHUB_WORKSPACE/$TAR_FILENAME" --clobber
           else
-            gh release create "$TAG_NAME" "$GITHUB_WORKSPACE/${VERSION}.tar" --title "$RELEASE_TITLE" --notes-file release_notes.md
+            gh release create "$TAG_NAME" "$GITHUB_WORKSPACE/$TAR_FILENAME" --title "$RELEASE_TITLE" --notes-file release_notes.md
           fi
